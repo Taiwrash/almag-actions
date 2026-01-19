@@ -1,0 +1,52 @@
+name: 'Almag Actions'
+description: 'Normalize and upload security scan reports to your Almag instance.'
+author: 'Almag Intelligence'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  almag-url:
+    description: 'Base URL of your Almag instance (e.g., https://almag.yourcompany.com)'
+    required: true
+  token:
+    description: 'Almag API Key or JWT token for authentication'
+    required: true
+  tool:
+    description: 'The security tool that generated the report (e.g., trivy, grype, gitleaks, semgrep, sarif)'
+    required: true
+  report-file:
+    description: 'Path to the security scan report file (JSON or SARIF)'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Upload Report
+      shell: bash
+      run: |
+        if [ ! -f "${{ inputs.report-file }}" ]; then
+          echo "::error::Report file not found: ${{ inputs.report-file }}"
+          exit 1
+        fi
+
+        echo "Uploading ${{ inputs.tool }} report to ${{ inputs.almag-url }}..."
+        
+        # Strip trailing slash from URL if present
+        URL=$(echo "${{ inputs.almag-url }}" | sed 's:/*$::')
+
+        response=$(curl -s -w "\n%{http_code}" -X POST "$URL/api/v1/ingest" \
+          -H "Authorization: Bearer ${{ inputs.token }}" \
+          -F "tool=${{ inputs.tool }}" \
+          -F "report=@${{ inputs.report-file }}")
+
+        http_code=$(echo "$response" | tail -n1)
+        body=$(echo "$response" | sed '$d')
+
+        if [[ "$http_code" -lt 200 ]] || [[ "$http_code" -ge 300 ]]; then
+          echo "::error::Upload failed with status $http_code. Response: $body"
+          exit 1
+        else
+          echo "Success! Report processed by Almag."
+          echo "$body"
+        fi
